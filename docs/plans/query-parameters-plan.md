@@ -3,7 +3,7 @@
 **Metadata:**
 
 - Type: plan
-- Status: active
+- Status: completed
 - Created: 2026-03-18
 - Topic: query-parameters
 - Issue: [agentjido/ash_jido#4](https://github.com/agentjido/ash_jido/issues/4)
@@ -63,8 +63,9 @@
 **Story 3: Agent paginates read results**
 
 - **AC1**: The schema includes `limit` and `offset` integer parameters
-- **AC2**: `limit` respects the action's pagination config (`default_limit`,
-  `max_page_size`)
+- **AC2**: `limit` respects the action's pagination config — Ash automatically
+  clamps to `max_page_size` and applies `default_limit` when pagination is
+  configured on the read action (handled natively by `Ash.read!/2`)
 - **AC3**: At runtime, `limit: 5, offset: 10` returns the correct page of
   results
 
@@ -141,8 +142,9 @@ sequenceDiagram
   error handler, returns validation_error
 - **Invalid sort field**: Ash.Query.sort_input raises — caught by existing error
   handler
-- **Limit exceeds max_page_size**: Silently clamped to max (matching ash_ai
-  behavior)
+- **Limit exceeds max_page_size**: Silently clamped by Ash's read pipeline
+  (`Ash.Actions.Read` takes `Enum.min([query_limit, max_page_size])`) — no
+  ash_jido code needed
 - **Non-filterable attribute**: Excluded from schema at compile time, so LLM
   cannot request it
 

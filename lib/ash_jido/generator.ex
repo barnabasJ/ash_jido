@@ -65,7 +65,7 @@ defmodule AshJido.Generator do
     # Build input schema including accepted attributes
     schema = build_parameter_schema(resource, ash_action, jido_action, dsl_state)
 
-    action_use_opts =
+    action_dsl_opts =
       [
         name: action_name,
         description: description,
@@ -74,6 +74,8 @@ defmodule AshJido.Generator do
       ]
       |> maybe_put_option(:category, category)
       |> maybe_put_option(:vsn, vsn)
+
+    action_block = build_action_block(action_dsl_opts)
 
     query_param_keys =
       if ash_action.type == :read do
@@ -90,7 +92,11 @@ defmodule AshJido.Generator do
         Wraps the Ash action; see the resource docs for semantics.
         """
 
-        use Jido.Action, unquote(Macro.escape(action_use_opts))
+        use Jido.Action
+
+        action do
+          unquote(action_block)
+        end
 
         @resource unquote(resource)
         @ash_action unquote(ash_action.name)
@@ -98,7 +104,27 @@ defmodule AshJido.Generator do
         @jido_config unquote(Macro.escape(jido_action))
         @query_param_keys unquote(query_param_keys)
 
-        def run(params, context) do
+        @impl Jido.Action
+        def run(signal, slice, _opts, ctx) do
+          params = extract_params(signal)
+          context = build_legacy_context(ctx, slice)
+
+          case do_run(params, context) do
+            {:ok, value} -> {:ok, Map.put(slice || %{}, :last_result, value), []}
+            {:ok, value, _} -> {:ok, Map.put(slice || %{}, :last_result, value), []}
+            {:error, _} = err -> err
+            other -> other
+          end
+        end
+
+        defp extract_params(%Jido.Signal{data: data}) when is_map(data), do: data
+        defp extract_params(data) when is_map(data), do: data
+        defp extract_params(_), do: %{}
+
+        defp build_legacy_context(ctx, _slice) when is_map(ctx), do: ctx
+        defp build_legacy_context(_, _), do: %{}
+
+        defp do_run(params, context) do
           ash_opts = AshJido.Context.extract_ash_opts!(context, @resource, @ash_action)
           telemetry_meta = telemetry_metadata(ash_opts, @jido_config)
           telemetry_span = AshJido.Telemetry.start(@jido_config, telemetry_meta)
@@ -590,4 +616,16 @@ defmodule AshJido.Generator do
 
   defp maybe_put_option(opts, _key, nil), do: opts
   defp maybe_put_option(opts, key, value), do: Keyword.put(opts, key, value)
+
+  # Build the AST for the contents of an `action do … end` DSL block from
+  # a keyword list of options. Returns a `__block__` AST node that, when
+  # spliced via `unquote/1`, expands to the individual `name(...)`,
+  # `description(...)`, `tags(...)`, `schema(...)`, `category(...)`,
+  # `vsn(...)` calls that Spark's DSL extension expects.
+  defp build_action_block(opts) do
+    {:__block__, [],
+     Enum.map(opts, fn {key, value} ->
+       {key, [], [Macro.escape(value)]}
+     end)}
+  end
 end

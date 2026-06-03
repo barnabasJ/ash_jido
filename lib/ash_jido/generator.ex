@@ -111,7 +111,6 @@ defmodule AshJido.Generator do
 
           case do_run(params, context) do
             {:ok, value} -> {:ok, Map.put(slice || %{}, :last_result, value), []}
-            {:ok, value, _} -> {:ok, Map.put(slice || %{}, :last_result, value), []}
             {:error, _} = err -> err
             other -> other
           end
@@ -153,141 +152,135 @@ defmodule AshJido.Generator do
         end
 
         defp execute_action(params, context, ash_opts, telemetry_span) do
-          try do
-            case @ash_action_type do
-              :create ->
-                create_result =
-                  @resource
-                  |> Ash.Changeset.for_create(@ash_action, params, ash_opts)
-                  |> Ash.create!(
-                    maybe_add_notification_collection(ash_opts, @jido_config, :create)
-                  )
+          case @ash_action_type do
+            :create ->
+              create_result =
+                @resource
+                |> Ash.Changeset.for_create(@ash_action, params, ash_opts)
+                |> Ash.create!(maybe_add_notification_collection(ash_opts, @jido_config, :create))
 
-                {result, notifications} = maybe_extract_result_and_notifications(create_result)
+              {result, notifications} = maybe_extract_result_and_notifications(create_result)
 
-                signal_emission =
-                  maybe_emit_notifications(
-                    notifications,
-                    context,
-                    @jido_config,
-                    @resource,
-                    @ash_action,
-                    :create
-                  )
+              signal_emission =
+                maybe_emit_notifications(
+                  notifications,
+                  context,
+                  @jido_config,
+                  @resource,
+                  @ash_action,
+                  :create
+                )
 
-                action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
-                {action_result, signal_emission, false}
+              action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
+              {action_result, signal_emission, false}
 
-              :read ->
-                {query_params, action_params} =
-                  split_query_params(params, @query_param_keys)
+            :read ->
+              {query_params, action_params} =
+                split_query_params(params, @query_param_keys)
 
-                result =
-                  @resource
-                  |> Ash.Query.for_read(@ash_action, action_params, ash_opts)
-                  |> maybe_apply_filter(query_params)
-                  |> maybe_apply_sort(query_params)
-                  |> maybe_apply_limit(query_params)
-                  |> maybe_apply_offset(query_params)
-                  |> maybe_load(@jido_config)
-                  |> Ash.read!(ash_opts)
+              result =
+                @resource
+                |> Ash.Query.for_read(@ash_action, action_params, ash_opts)
+                |> maybe_apply_filter(query_params)
+                |> maybe_apply_sort(query_params)
+                |> maybe_apply_limit(query_params)
+                |> maybe_apply_offset(query_params)
+                |> maybe_load(@jido_config)
+                |> Ash.read!(ash_opts)
 
-                action_result = AshJido.Mapper.wrap_result(result, @jido_config)
-                {action_result, empty_signal_meta(), false}
+              action_result = AshJido.Mapper.wrap_result(result, @jido_config)
+              {action_result, empty_signal_meta(), false}
 
-              :update ->
-                # Load the record to update using its primary key
-                record_id = Map.get(params, :id) || Map.get(params, "id")
+            :update ->
+              # Load the record to update using its primary key
+              record_id = Map.get(params, :id) || Map.get(params, "id")
 
-                unless record_id do
-                  raise ArgumentError, "Update actions require an 'id' parameter"
-                end
+              if !record_id do
+                raise ArgumentError, "Update actions require an 'id' parameter"
+              end
 
-                # Remove id from params to prevent it being passed to changeset
-                update_params = Map.drop(params, [:id, "id"])
+              # Remove id from params to prevent it being passed to changeset
+              update_params = Map.drop(params, [:id, "id"])
 
-                # Load the record first
-                record =
-                  @resource
-                  |> Ash.get!(record_id, ash_opts)
+              # Load the record first
+              record =
+                @resource
+                |> Ash.get!(record_id, ash_opts)
 
-                update_result =
-                  record
-                  |> Ash.Changeset.for_update(@ash_action, update_params, ash_opts)
-                  |> Ash.update!(
-                    maybe_add_notification_collection(ash_opts, @jido_config, :update)
-                  )
+              update_result =
+                record
+                |> Ash.Changeset.for_update(@ash_action, update_params, ash_opts)
+                |> Ash.update!(maybe_add_notification_collection(ash_opts, @jido_config, :update))
 
-                {result, notifications} = maybe_extract_result_and_notifications(update_result)
+              {result, notifications} = maybe_extract_result_and_notifications(update_result)
 
-                signal_emission =
-                  maybe_emit_notifications(
-                    notifications,
-                    context,
-                    @jido_config,
-                    @resource,
-                    @ash_action,
-                    :update
-                  )
+              signal_emission =
+                maybe_emit_notifications(
+                  notifications,
+                  context,
+                  @jido_config,
+                  @resource,
+                  @ash_action,
+                  :update
+                )
 
-                action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
-                {action_result, signal_emission, false}
+              action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
+              {action_result, signal_emission, false}
 
-              :destroy ->
-                # Load the record to destroy using its primary key
-                record_id = Map.get(params, :id) || Map.get(params, "id")
+            :destroy ->
+              # Load the record to destroy using its primary key
+              record_id = Map.get(params, :id) || Map.get(params, "id")
 
-                unless record_id do
-                  raise ArgumentError, "Destroy actions require an 'id' parameter"
-                end
+              if !record_id do
+                raise ArgumentError, "Destroy actions require an 'id' parameter"
+              end
 
-                # Load the record first
-                record =
-                  @resource
-                  |> Ash.get!(record_id, ash_opts)
+              # Load the record first
+              record =
+                @resource
+                |> Ash.get!(record_id, ash_opts)
 
-                destroy_result =
-                  record
-                  |> Ash.Changeset.for_destroy(@ash_action, %{}, ash_opts)
-                  |> Ash.destroy!(
-                    maybe_add_notification_collection(ash_opts, @jido_config, :destroy)
-                  )
+              destroy_result =
+                record
+                |> Ash.Changeset.for_destroy(@ash_action, %{}, ash_opts)
+                |> Ash.destroy!(
+                  maybe_add_notification_collection(ash_opts, @jido_config, :destroy)
+                )
 
-                notifications = maybe_extract_destroy_notifications(destroy_result)
+              notifications = maybe_extract_destroy_notifications(destroy_result)
 
-                signal_emission =
-                  maybe_emit_notifications(
-                    notifications,
-                    context,
-                    @jido_config,
-                    @resource,
-                    @ash_action,
-                    :destroy
-                  )
+              signal_emission =
+                maybe_emit_notifications(
+                  notifications,
+                  context,
+                  @jido_config,
+                  @resource,
+                  @ash_action,
+                  :destroy
+                )
 
-                # Pass :ok directly to Mapper which will convert to {:ok, nil}
-                action_result = AshJido.Mapper.wrap_result(:ok, @jido_config)
-                {action_result, signal_emission, false}
+              # Pass :ok directly to Mapper which will convert to {:ok, nil}
+              action_result = AshJido.Mapper.wrap_result(:ok, @jido_config)
+              {action_result, signal_emission, false}
 
-              :action ->
-                result =
-                  @resource
-                  |> Ash.ActionInput.for_action(@ash_action, params, ash_opts)
-                  |> Ash.run_action!(ash_opts)
+            :action ->
+              result =
+                @resource
+                |> Ash.ActionInput.for_action(@ash_action, params, ash_opts)
+                |> Ash.run_action!(ash_opts)
 
-                action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
-                {action_result, empty_signal_meta(), false}
-            end
-          rescue
-            error ->
-              stacktrace = __STACKTRACE__
-              signal_meta = empty_signal_meta()
-
-              AshJido.Telemetry.exception(telemetry_span, :error, error, stacktrace, signal_meta)
-
-              jido_error = AshJido.Error.from_ash(error)
-              {{:error, jido_error}, signal_meta, true}
+              action_result = {:ok, result} |> AshJido.Mapper.wrap_result(@jido_config)
+              {action_result, empty_signal_meta(), false}
           end
+        rescue
+          error ->
+            stacktrace = __STACKTRACE__
+            signal_meta = empty_signal_meta()
+
+            AshJido.Telemetry.exception(telemetry_span, :error, error, stacktrace, signal_meta)
+
+            jido_error = AshJido.Error.from_ash(error)
+            {{:error, jido_error}, signal_meta, true}
         end
 
         defp telemetry_metadata(ash_opts, config) do
@@ -564,8 +557,6 @@ defmodule AshJido.Generator do
 
       if attr do
         {attr_name, attribute_to_nimble_options(attr)}
-      else
-        nil
       end
     end)
     |> Enum.reject(&is_nil/1)

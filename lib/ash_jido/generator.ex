@@ -84,6 +84,26 @@ defmodule AshJido.Generator do
         []
       end
 
+    # For non-create/update/destroy actions `validate_dispatch_config/5` always
+    # returns `:ok` (signal dispatch only applies to CUD actions), so emitting
+    # an `{:error, _}` clause there would be dead code that Elixir's type
+    # checker rejects. Generate the error branch only when it can occur.
+    validate_dispatch_clauses =
+      if ash_action.type in [:create, :update, :destroy] do
+        quote do
+          :ok ->
+            execute_action(params, context, ash_opts, telemetry_span)
+
+          {:error, error} ->
+            {{:error, error}, empty_signal_meta(), false}
+        end
+      else
+        quote do
+          :ok ->
+            execute_action(params, context, ash_opts, telemetry_span)
+        end
+      end
+
     quote do
       defmodule unquote(module_name) do
         @moduledoc """
@@ -112,7 +132,6 @@ defmodule AshJido.Generator do
           case do_run(params, context) do
             {:ok, value} -> {:ok, Map.put(slice || %{}, :last_result, value), []}
             {:error, _} = err -> err
-            other -> other
           end
         end
 
@@ -136,11 +155,7 @@ defmodule AshJido.Generator do
                    @ash_action,
                    @ash_action_type
                  ) do
-              :ok ->
-                execute_action(params, context, ash_opts, telemetry_span)
-
-              {:error, error} ->
-                {{:error, error}, empty_signal_meta(), false}
+              unquote(validate_dispatch_clauses)
             end
 
           if exception? do
@@ -342,7 +357,7 @@ defmodule AshJido.Generator do
                 direction = Map.get(entry, :direction) || Map.get(entry, "direction")
 
                 direction =
-                  if is_atom(direction), do: to_string(direction), else: direction || "asc"
+                  if is_atom(direction), do: to_string(direction), else: direction
 
                 prefix =
                   case direction do
